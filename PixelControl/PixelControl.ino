@@ -17,15 +17,22 @@
 
 // Which pin on the Arduino is connected to the NeoPixels?
 // On a Trinket or Gemma we suggest changing this to 1:
-#define LED_PIN    6
+#define STRIP_PIN    6
+#define RING_PIN 2
+#define BUTTON_PIN 4
+#define LED_PIN 3
+#define POT0_PIN A0
+#define POT1_PIN A1
 
 // How many NeoPixels are attached to the Arduino?
-#define LED_COUNT 10
+#define STRIP_COUNT 10
+#define RING_COUNT 12
 
 int Brightness = 100;
 
 // Declare our NeoPixel strip object:
-Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip(STRIP_COUNT, STRIP_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel ring(RING_COUNT, RING_PIN, NEO_GRB + NEO_KHZ800);
 // Argument 1 = Number of pixels in NeoPixel strip
 // Argument 2 = Arduino pin number (most are valid)
 // Argument 3 = Pixel type flags, add together as needed:
@@ -46,6 +53,17 @@ uint32_t blue = strip.Color(0, 0, 255);
 uint32_t purple = strip.Color(127, 0, 255);
 uint32_t white = strip.Color(255, 255, 255);
 
+// set up some global variables
+int buttonState;
+int led_state;
+int inByte;
+int ary[10];
+int idx;
+int pot0_val;
+int pot1_val;
+int button0_val;
+
+
 // setup() function -- runs once at startup --------------------------------
 
 void setup() {
@@ -62,27 +80,40 @@ void setup() {
   strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
   strip.show();            // Turn OFF all pixels ASAP
   strip.setBrightness(Brightness); // Set BRIGHTNESS to about 40% (max = 255)
+
+  ring.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
+  ring.show();            // Turn OFF all pixels ASAP
+  ring.setBrightness(Brightness); // Set BRIGHTNESS to about 40% (max = 255)
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(LED_PIN, OUTPUT);
+
+  led_state = HIGH;
+  inByte = 'q';
+  idx = 0;
 }
 
 
 // loop() function -- runs repeatedly as long as board is on ---------------
 
 void loop() {
+  grabSensors();
+  digitalWrite(LED_PIN, led_state);
+    
   if (Serial.available() > 0){
-    int inByte = Serial.read();
-
+    inByte = Serial.read();
     switch (inByte){
       case 'z':
         testloop();
+        break;
+      case 'W':
+        checkButton();
         break;
       case 'x':
         CylonChase(50);
         break;
       case 'k':
-        //colorSet(strip.Color(0,   0,   0)); // Blackout
-        strip.clear(); // Set all pixel colors to 'off'
-        strip.show();
-        Serial.println("Blackout");
+        blackout();
         break;
       case 'g':
         colorWipe(strip.Color(0,255,0), 50); // Green
@@ -104,6 +135,9 @@ void loop() {
         colorWipe(white, 50); // Blue
         Serial.println("White");
         break;
+      case 't':
+        track0Value(white, 50);
+        break;
       case 'B':
         if (Brightness >200) {
           break;
@@ -121,7 +155,88 @@ void loop() {
         strip.show();
         break;
     }
+    inByte = 'q';
   }
+}
+
+void grabSensors() {
+  pot0_val = analogRead(POT0_PIN);
+  pot1_val = analogRead(POT1_PIN);
+  button0_val = digitalRead(BUTTON_PIN);
+}
+
+void blackout() {
+  //colorSet(strip.Color(0,   0,   0)); // Blackout
+  strip.clear(); // Set all pixel colors to 'off'
+  strip.show();
+  ring.clear();
+  ring.show();
+  led_state = LOW;
+  Serial.println("Blackout");
+}
+
+int avgValue(int val) {
+  if (idx > 9) {
+    idx = 0;
+  }
+  ary[idx] = val;
+  idx++;
+  int b=0;
+  for (int j=0; j<=9; j++){
+    b += ary[j]; 
+  }
+  return b/10;
+}
+
+void track0Value(uint32_t color, int wait) {
+  int oldval=0;
+  strip.clear(); // Set all pixel colors to 'off'
+  strip.show();
+  while(button0_val == HIGH){
+    grabSensors();
+    track1Value();
+    int setpoint = map(pot0_val, 0, 1023, 0, strip.numPixels()-1);
+    Serial.print("mapped led =");
+    Serial.print(setpoint);
+    Serial.print(", Pot1 =");
+    Serial.print(pot1_val);
+    Serial.print(", Button =");
+    Serial.print(button0_val);
+    Serial.print(", Average0 = ");
+    Serial.println(avgValue(pot1_val));
+    strip.setPixelColor(oldval, black);
+    strip.setPixelColor(setpoint, color);
+    strip.show();
+    oldval = setpoint;
+    delay(50);
+  }
+  blackout();
+}
+
+void track1Value() {
+  int newval = 0;
+  int oldval=0;
+  ring.clear(); // Set all pixel colors to 'off'
+  ring.show();
+  Serial.println(avgValue(pot1_val));
+  int setpoint = map(avgValue(pot1_val), 0, 1023, 0, ring.numPixels()-1);
+  Serial.println(setpoint);
+  ring.setPixelColor(oldval, black);
+  ring.setPixelColor(setpoint, red);
+  ring.show();
+  oldval = setpoint;
+}
+
+
+
+void checkButton() {
+  while(buttonState == HIGH){
+    buttonState = digitalRead(BUTTON_PIN);
+    Serial.print(", Button =");
+    Serial.println(buttonState);
+    delay(50);
+  }
+  Serial.println("Done!");
 }
 
 void testloop() {
